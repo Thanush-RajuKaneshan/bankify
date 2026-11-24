@@ -1,0 +1,12 @@
+# Build stage: compiles the service, so no local Java or Maven is needed.
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /src
+COPY pom.xml .
+RUN mvn -q -B dependency:go-offline
+COPY src src
+RUN mvn -q -B package -DskipTests
+
+FROM eclipse-temurin:21-jre
+COPY --from=build /src/target/app.jar /app.jar
+EXPOSE 8761
+ENTRYPOINT ["java", "-jar", "/app.jar"]

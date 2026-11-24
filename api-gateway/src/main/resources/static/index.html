@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bankify</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>Bankify</h1>
+  <div id="who" hidden><span id="username"></span> <button id="logout" class="plain">Log out</button></div>
+</header>
+<p id="message" role="status"></p>
+
+<main id="auth" hidden>
+  <form id="auth-form" class="panel">
+    <h2 id="auth-title">Log in</h2>
+    <label>Username <input name="username" required maxlength="50" autocomplete="username"></label>
+    <label id="email-field" hidden>Email <input name="email" type="email" required disabled maxlength="255" autocomplete="email"></label>
+    <label>Password <input name="password" type="password" required maxlength="72" autocomplete="current-password"></label>
+    <button id="auth-submit">Log in</button>
+    <button id="auth-switch" type="button" class="plain">New here? Create an account</button>
+  </form>
+</main>
+
+<main id="bank" hidden>
+  <section>
+    <div class="row">
+      <h2>Your accounts <small id="total"></small></h2>
+      <button id="open-account">Open account</button>
+    </div>
+    <div id="accounts" class="cards"></div>
+    <p id="no-accounts" class="muted">You have no accounts yet. Open one to get started.</p>
+  </section>
+
+  <div id="selected" class="columns" hidden>
+    <form id="move-form" class="panel">
+      <h2>Move money</h2>
+      <p class="muted">Account <b id="selected-number"></b></p>
+      <fieldset>
+        <legend class="sr-only">Action</legend>
+        <label><input type="radio" name="action" value="deposit" checked> Deposit</label>
+        <label><input type="radio" name="action" value="withdraw"> Withdraw</label>
+        <label><input type="radio" name="action" value="transfer"> Transfer</label>
+      </fieldset>
+      <label id="to-field" hidden>To account
+        <input name="to" list="own-accounts" required disabled pattern="BNK[0-9]{10}" title="BNK followed by 10 digits" placeholder="BNK0000000000" autocomplete="off">
+      </label>
+      <datalist id="own-accounts"></datalist>
+      <label>Amount (₹) <input name="amount" type="number" required min="0.01" max="999999999999.99" step="0.01" inputmode="decimal"></label>
+      <button>Confirm</button>
+    </form>
+
+    <section class="panel">
+      <h2>History</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Details</th><th>Status</th><th class="num">Amount</th></tr></thead>
+          <tbody id="history"></tbody>
+        </table>
+      </div>
+      <p id="no-history" class="muted">No transactions yet.</p>
+    </section>
+  </div>
+</main>
+</body>
+</html>

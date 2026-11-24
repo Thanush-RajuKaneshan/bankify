@@ -1,0 +1,331 @@
+# Bankify on Kubernetes: kubectl apply -f k8s/bankify.yaml
+# Images are built locally (docker compose build) and tagged bankify-<service>:latest.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bankify
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bankify-secrets
+  namespace: bankify
+type: Opaque
+stringData:
+  postgres-password: postgres                                   # change for any real deployment
+  jwt-secret: local-dev-secret-change-me-32-chars-min           # change for any real deployment
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: bankify
+data:
+  create-databases.sql: |
+    CREATE DATABASE userservice_db;
+    CREATE DATABASE accountservice_db;
+    CREATE DATABASE transactionservice_db;
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: bankify
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: bankify-secrets, key: postgres-password}
+          volumeMounts:
+            - {name: init, mountPath: /docker-entrypoint-initdb.d}
+            - {name: data, mountPath: /var/lib/postgresql/data}
+      volumes:
+        - name: init
+          configMap: {name: postgres-init}
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: bankify
+spec:
+  type: ClusterIP
+  selector: {app: postgres}
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: bankify
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: kafka}
+  template:
+    metadata:
+      labels: {app: kafka}
+    spec:
+      containers:
+        - name: kafka
+          image: apache/kafka:3.9.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9092
+          env:
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://kafka:9092"
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "1@localhost:9093"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: bankify
+spec:
+  type: ClusterIP
+  selector: {app: kafka}
+  ports:
+    - port: 9092
+      targetPort: 9092
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eureka-server
+  namespace: bankify
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: eureka-server}
+  template:
+    metadata:
+      labels: {app: eureka-server}
+    spec:
+      containers:
+        - name: eureka-server
+          image: bankify-eureka-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8761
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eureka-server
+  namespace: bankify
+spec:
+  type: ClusterIP
+  selector: {app: eureka-server}
+  ports:
+    - port: 8761
+      targetPort: 8761
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: bankify
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: user-service}
+  template:
+    metadata:
+      labels: {app: user-service}
+    spec:
+      containers:
+        - name: user-service
+          image: bankify-user-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          env:
+            - name: DB_URL
+              value: "jdbc:postgresql://postgres:5432/userservice_db"
+            - name: DB_USER
+              value: "postgres"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: bankify-secrets, key: postgres-password}
+            - name: EUREKA_URL
+              value: "http://eureka-server:8761/eureka"
+            - name: KAFKA_SERVERS
+              value: "kafka:9092"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: {name: bankify-secrets, key: jwt-secret}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: bankify
+spec:
+  type: ClusterIP
+  selector: {app: user-service}
+  ports:
+    - port: 8081
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: account-service
+  namespace: bankify
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: account-service}
+  template:
+    metadata:
+      labels: {app: account-service}
+    spec:
+      containers:
+        - name: account-service
+          image: bankify-account-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+          env:
+            - name: DB_URL
+              value: "jdbc:postgresql://postgres:5432/accountservice_db"
+            - name: DB_USER
+              value: "postgres"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: bankify-secrets, key: postgres-password}
+            - name: EUREKA_URL
+              value: "http://eureka-server:8761/eureka"
+            - name: KAFKA_SERVERS
+              value: "kafka:9092"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: account-service
+  namespace: bankify
+spec:
+  type: ClusterIP
+  selector: {app: account-service}
+  ports:
+    - port: 8082
+      targetPort: 8082
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-service
+  namespace: bankify
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: transaction-service}
+  template:
+    metadata:
+      labels: {app: transaction-service}
+    spec:
+      containers:
+        - name: transaction-service
+          image: bankify-transaction-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8083
+          env:
+            - name: DB_URL
+              value: "jdbc:postgresql://postgres:5432/transactionservice_db"
+            - name: DB_USER
+              value: "postgres"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: bankify-secrets, key: postgres-password}
+            - name: EUREKA_URL
+              value: "http://eureka-server:8761/eureka"
+            - name: KAFKA_SERVERS
+              value: "kafka:9092"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-service
+  namespace: bankify
+spec:
+  type: ClusterIP
+  selector: {app: transaction-service}
+  ports:
+    - port: 8083
+      targetPort: 8083
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: bankify
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: api-gateway}
+  template:
+    metadata:
+      labels: {app: api-gateway}
+    spec:
+      containers:
+        - name: api-gateway
+          image: bankify-api-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: EUREKA_URL
+              value: "http://eureka-server:8761/eureka"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: {name: bankify-secrets, key: jwt-secret}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: bankify
+spec:
+  type: LoadBalancer
+  selector: {app: api-gateway}
+  ports:
+    - port: 8080
+      targetPort: 8080
